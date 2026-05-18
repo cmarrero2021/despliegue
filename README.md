@@ -1,0 +1,12 @@
+Plantilla inicial para proyectos de NodeJs, Quasar 2, websocket y GraphQL; implementa:
+- Gestión de Usuarios
+- Getión de roles
+- Gestión de Permisos
+- Asugnación de permisos a roles
+- Asignación de roles a usuarios
+- Asignación de permisos a usuarios
+- Manejo de sesiones (globales / roles / usuarios)
+- Manejos de tiempos de enfriamiento para el reingreso (globales / roles / usuarios)
+- Activación / Desactivación del 2FA (globales / roles / usuarios)
+- Módulo Analytics para creación de consultas en tablas / gráficos dinámicos, tanto públicos mcomo privados
+- Módulo de gestión de consultas dinámicas: Guardado, Carga

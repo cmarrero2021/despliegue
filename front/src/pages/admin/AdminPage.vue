@@ -1,0 +1,1479 @@
+<template>
+    <q-page padding>
+        <div class="text-h4 q-mb-md">Administración</div>
+
+        <q-card>
+            <q-tabs v-model="tab" dense class="text-grey" active-color="primary" indicator-color="primary"
+                align="justify" narrow-indicator>
+                <q-tab name="users" label="Usuarios" icon="people" />
+                <q-tab name="roles" label="Roles" icon="security" />
+                <q-tab name="permissions" label="Permisos" icon="vpn_key" />
+                <q-tab name="maintenance" label="Mantenimiento" icon="settings" />
+            </q-tabs>
+
+
+            <q-separator />
+
+            <q-tab-panels v-model="tab" animated>
+                <!-- Panel de Usuarios -->
+                <q-tab-panel name="users">
+                    <div class="text-h6">Gestión de Usuarios</div>
+                    <q-table :rows="filteredUsers" :columns="userColumns" row-key="id" :loading="loadingUsers"
+                        selection="multiple" v-model:selected="selectedUsers">
+                        <template v-slot:top-right>
+                            <q-input v-model="userSearch" dense outlined placeholder="Buscar usuario..." class="q-mr-md"
+                                style="min-width: 200px">
+                                <template v-slot:prepend>
+                                    <q-icon name="search" />
+                                </template>
+                                <template v-slot:append v-if="userSearch">
+                                    <q-icon name="close" class="cursor-pointer" @click="userSearch = ''" />
+                                </template>
+                            </q-input>
+
+                            <q-btn-group outline class="q-mr-md">
+                                <q-btn color="grey-3" text-color="dark" label="Exportar Accesos" icon="hub">
+                                    <q-menu auto-close>
+                                        <q-list style="min-width: 200px">
+                                            <q-item-label header>Formato JSON</q-item-label>
+                                            <q-item clickable @click="exportUserAccess('json', 'all')">
+                                                <q-item-section avatar><q-icon name="groups"
+                                                        color="primary" /></q-item-section>
+                                                <q-item-section>Todos los usuarios</q-item-section>
+                                            </q-item>
+                                            <q-item clickable @click="exportUserAccess('json', 'selected')"
+                                                :disable="selectedUsers.length === 0">
+                                                <q-item-section avatar><q-icon name="check_circle"
+                                                        color="secondary" /></q-item-section>
+                                                <q-item-section>Seleccionados ({{ selectedUsers.length
+                                                    }})</q-item-section>
+                                            </q-item>
+
+                                            <q-separator />
+                                            <q-item-label header>Formato CSV</q-item-label>
+                                            <q-item clickable @click="exportUserAccess('csv', 'all')">
+                                                <q-item-section avatar><q-icon name="groups"
+                                                        color="blue" /></q-item-section>
+                                                <q-item-section>Todos los usuarios</q-item-section>
+                                            </q-item>
+                                            <q-item clickable @click="exportUserAccess('csv', 'selected')"
+                                                :disable="selectedUsers.length === 0">
+                                                <q-item-section avatar><q-icon name="check_circle"
+                                                        color="blue" /></q-item-section>
+                                                <q-item-section>Seleccionados ({{ selectedUsers.length
+                                                    }})</q-item-section>
+                                            </q-item>
+
+                                            <q-separator />
+                                            <q-item-label header>Formato Excel</q-item-label>
+                                            <q-item clickable @click="exportUserAccess('excel', 'all')">
+                                                <q-item-section avatar><q-icon name="groups"
+                                                        color="positive" /></q-item-section>
+                                                <q-item-section>Todos los usuarios</q-item-section>
+                                            </q-item>
+                                            <q-item clickable @click="exportUserAccess('excel', 'selected')"
+                                                :disable="selectedUsers.length === 0">
+                                                <q-item-section avatar><q-icon name="check_circle"
+                                                        color="positive" /></q-item-section>
+                                                <q-item-section>Seleccionados ({{ selectedUsers.length
+                                                    }})</q-item-section>
+                                            </q-item>
+                                        </q-list>
+                                    </q-menu>
+                                </q-btn>
+                            </q-btn-group>
+
+                            <q-btn color="primary" icon="add" label="Nuevo Usuario" @click="openUserModal()" />
+                        </template>
+                        <template v-slot:body-cell-status="props">
+                            <q-td :props="props">
+                                <q-badge :color="props.row.status === 'active' ? 'positive' : 'negative'"
+                                    :label="props.row.status === 'active' ? 'Activo' : 'Suspendido'" />
+                            </q-td>
+                        </template>
+                        <template v-slot:body-cell-actions="props">
+                            <q-td :props="props">
+                                <q-btn flat round dense color="primary" icon="edit" @click="openUserModal(props.row)">
+                                    <q-tooltip>Editar</q-tooltip>
+                                </q-btn>
+                                <q-btn flat round dense :color="props.row.status === 'active' ? 'warning' : 'positive'"
+                                    :icon="props.row.status === 'active' ? 'block' : 'check_circle'"
+                                    @click="confirmToggleStatus(props.row)">
+                                    <q-tooltip>{{ props.row.status === 'active' ? 'Suspender' : 'Reactivar'
+                                    }}</q-tooltip>
+                                </q-btn>
+                                <q-btn flat round dense color="negative" icon="delete"
+                                    @click="confirmDeleteUser(props.row)">
+                                    <q-tooltip>Eliminar</q-tooltip>
+                                </q-btn>
+                                <q-btn v-if="hasPermission('assign-role')" flat round dense color="secondary"
+                                    icon="manage_accounts" @click="openAssignRoleModal(props.row)">
+                                    <q-tooltip>Asignar Rol</q-tooltip>
+                                </q-btn>
+                                <q-btn v-if="hasPermission('assign_user_permission')" flat round dense color="primary"
+                                    icon="vpn_key" @click="openAssignUserPermissionModal(props.row)">
+                                    <q-tooltip>Permisos Directos</q-tooltip>
+                                </q-btn>
+                                <q-btn v-if="hasPermission('assign_user_password')" flat round dense color="negative"
+                                    icon="lock_reset" @click="openResetPasswordModal(props.row)">
+                                    <q-tooltip>Asignar Nueva Clave</q-tooltip>
+                                </q-btn>
+                                <q-btn flat round dense color="info" icon="account_tree"
+                                    @click="openViewUserAccessModal(props.row)">
+                                    <q-tooltip>Ver Árbol de Accesos</q-tooltip>
+                                </q-btn>
+                            </q-td>
+                        </template>
+
+                    </q-table>
+                </q-tab-panel>
+
+                <!-- Panel de Roles -->
+                <q-tab-panel name="roles">
+                    <div class="text-h6">Gestión de Roles</div>
+                    <q-table :rows="filteredRoles" :columns="roleColumns" row-key="id" :loading="loadingRoles">
+                        <template v-slot:top-right>
+                            <q-input v-model="roleSearch" dense outlined placeholder="Buscar rol..." class="q-mr-md"
+                                style="min-width: 200px">
+                                <template v-slot:prepend>
+                                    <q-icon name="search" />
+                                </template>
+                                <template v-slot:append v-if="roleSearch">
+                                    <q-icon name="close" class="cursor-pointer" @click="roleSearch = ''" />
+                                </template>
+                            </q-input>
+                            <q-btn color="primary" icon="add" label="Nuevo Rol" @click="openRoleModal()" />
+                        </template>
+                        <template v-slot:body-cell-actions="props">
+                            <q-td :props="props">
+                                <q-btn flat round dense color="primary" icon="edit" @click="openRoleModal(props.row)" />
+                                <q-btn flat round dense color="negative" icon="delete"
+                                    @click="confirmDeleteRole(props.row)" />
+                                <q-btn flat round dense color="secondary" icon="vpn_key"
+                                    @click="openAssignPermissionModal(props.row)">
+                                    <q-tooltip>Asignar Permisos</q-tooltip>
+                                </q-btn>
+                            </q-td>
+                        </template>
+                    </q-table>
+                </q-tab-panel>
+
+                <!-- Panel de Permisos -->
+                <q-tab-panel name="permissions">
+                    <div class="text-h6">Gestión de Permisos</div>
+                    <q-table :rows="filteredPermissions" :columns="permissionColumns" row-key="id"
+                        :loading="loadingPermissions">
+                        <template v-slot:top-right>
+                            <q-input v-model="permissionSearch" dense outlined placeholder="Buscar permiso..."
+                                class="q-mr-md" style="min-width: 200px">
+                                <template v-slot:prepend>
+                                    <q-icon name="search" />
+                                </template>
+                                <template v-slot:append v-if="permissionSearch">
+                                    <q-icon name="close" class="cursor-pointer" @click="permissionSearch = ''" />
+                                </template>
+                            </q-input>
+
+                            <q-btn-group outline class="q-mr-md">
+                                <q-btn color="grey-3" text-color="dark" label="Exportar" icon="download">
+                                    <q-menu auto-close>
+                                        <q-list style="min-width: 150px">
+                                            <q-item clickable @click="exportPermissionsJSON">
+                                                <q-item-section side>
+                                                    <q-icon name="code" color="orange" />
+                                                </q-item-section>
+                                                <q-item-section>JSON</q-item-section>
+                                            </q-item>
+                                            <q-item clickable @click="exportPermissionsCSV">
+                                                <q-item-section side>
+                                                    <q-icon name="description" color="blue" />
+                                                </q-item-section>
+                                                <q-item-section>CSV</q-item-section>
+                                            </q-item>
+                                            <q-item clickable @click="exportPermissionsExcel">
+                                                <q-item-section side>
+                                                    <q-icon name="table_chart" color="positive" />
+                                                </q-item-section>
+                                                <q-item-section>Excel (.xls)</q-item-section>
+                                            </q-item>
+                                        </q-list>
+                                    </q-menu>
+                                </q-btn>
+                            </q-btn-group>
+
+                            <q-btn color="primary" icon="add" label="Nuevo Permiso" @click="openPermissionModal()" />
+                        </template>
+                        <template v-slot:body-cell-actions="props">
+                            <q-td :props="props">
+                                <q-btn flat round dense color="primary" icon="edit"
+                                    @click="openPermissionModal(props.row)" />
+                                <q-btn flat round dense color="negative" icon="delete"
+                                    @click="confirmDeletePermission(props.row)" />
+                            </q-td>
+                        </template>
+                    </q-table>
+                </q-tab-panel>
+
+                <!-- Panel de Mantenimiento -->
+                <q-tab-panel name="maintenance">
+                    <div class="row items-center q-mb-md">
+                        <div class="text-h6">Mantenimiento del Sistema</div>
+                        <q-space />
+                        <q-btn flat round color="primary" icon="refresh" @click="fetchMaintenanceLogs()">
+                            <q-tooltip>Actualizar bitácora</q-tooltip>
+                        </q-btn>
+                    </div>
+
+                    <q-banner class="bg-amber-1 text-amber-9 rounded-borders q-mb-lg" border>
+                        <template v-slot:avatar>
+                            <q-icon name="warning" color="amber-9" />
+                        </template>
+                        <div class="text-weight-bold">Atención: Acciones Irreversibles</div>
+                        Las acciones en esta sección pueden tener un impacto permanente en la base de datos.
+                        Úselas con extrema precaución.
+                    </q-banner>
+
+                    <q-card flat bordered class="q-pa-md q-mb-lg">
+                        <div class="row items-center">
+                            <div class="col">
+                                <div class="text-subtitle1 text-weight-bold">Purga Física de Registros</div>
+                                <div class="text-caption text-grey">
+                                    Elimina permanentemente todos los registros marcados como "borrados" del sistema.
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <q-btn color="negative" icon="delete_forever" label="Ejecutar Purga"
+                                    @click="confirmPurge" :loading="maintenanceLoading" />
+                            </div>
+                        </div>
+                    </q-card>
+
+                    <q-separator q-mb-md />
+
+                    <div class="text-h6 q-mt-md q-mb-sm">Bitácora de Mantenimiento</div>
+                    <q-table :rows="maintenanceLogs" :columns="maintenanceColumns" row-key="id"
+                        :loading="maintenanceLoading" :pagination="{ rowsPerPage: 10 }">
+                        <template v-slot:body-cell-status="props">
+                            <q-td :props="props">
+                                <q-badge :color="props.value === 'SUCCESS' ? 'positive' : 'negative'"
+                                    :label="props.value === 'SUCCESS' ? 'Éxito' : 'Error'" />
+                            </q-td>
+                        </template>
+                        <template v-slot:body-cell-performed_at="props">
+                            <q-td :props="props">
+                                {{ props.value ? new Date(props.value).toLocaleString() : 'N/A' }}
+                            </q-td>
+                        </template>
+                    </q-table>
+
+                </q-tab-panel>
+
+            </q-tab-panels>
+
+        </q-card>
+
+        <!-- Modal Usuario -->
+        <q-dialog v-model="userModalOpen" persistent>
+            <q-card style="min-width: 400px">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">{{ editingUser ? 'Editar Usuario' : 'Nuevo Usuario' }}</div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+
+                <q-card-section>
+                    <q-form @submit="saveUser">
+                        <q-input v-model="userForm.first_name" label="Nombre" :rules="[val => !!val || 'Requerido']" />
+                        <q-input v-model="userForm.last_name" label="Apellido" :rules="[val => !!val || 'Requerido']" />
+                        <q-input v-model="userForm.cedula" label="Cédula"
+                            :rules="[val => !!val || 'Requerido', val => /^\d+$/.test(val) || 'Solo números']" />
+                        <q-input v-model="userForm.email" label="Email" type="email"
+                            :rules="[val => !!val || 'Requerido', val => /.+@.+\..+/.test(val) || 'Email inválido']" />
+
+                        <div class="q-mt-md" v-if="!editingUser">
+                            <div class="row items-center q-mb-sm">
+                                <q-btn label="Generar Clave" color="secondary" size="sm" @click="generatePassword"
+                                    icon="vpn_key" class="q-mr-sm" />
+                                <div class="text-caption text-grey">Genera una clave segura automáticamente</div>
+                            </div>
+
+                            <q-input v-model="userForm.password" label="Contraseña"
+                                :type="isPasswordVisible ? 'text' : 'password'" class="no-uppercase"
+                                :hint="editingUser ? 'Dejar en blanco para mantener la actual' : ''"
+                                :rules="[val => (!editingUser && !val) ? 'Requerido' : true, val => !val || validatePasswordStrength(val) === true || validatePasswordStrength(val)]">
+                                <template v-slot:append>
+                                    <q-icon :name="isPasswordVisible ? 'visibility' : 'visibility_off'"
+                                        class="cursor-pointer" @click="isPasswordVisible = !isPasswordVisible" />
+                                </template>
+                            </q-input>
+
+                            <q-input v-model="userForm.confirmPassword" label="Confirmar Contraseña"
+                                :type="isConfirmPasswordVisible ? 'text' : 'password'" class="no-uppercase"
+                                :rules="[val => val === userForm.password || 'Las contraseñas no coinciden']">
+                                <template v-slot:append>
+                                    <q-icon :name="isConfirmPasswordVisible ? 'visibility' : 'visibility_off'"
+                                        class="cursor-pointer"
+                                        @click="isConfirmPasswordVisible = !isConfirmPasswordVisible" />
+                                </template>
+                            </q-input>
+
+                            <div class="q-mt-sm q-pa-sm bg-grey-2 rounded-borders">
+                                <div class="text-caption text-weight-bold q-mb-xs">Requisitos de contraseña:</div>
+                                <div class="row q-gutter-x-md">
+                                    <div :class="hasMinLength ? 'text-positive' : 'text-grey'">
+                                        <q-icon :name="hasMinLength ? 'check_circle' : 'radio_button_unchecked'" /> 8+
+                                        caracteres
+                                    </div>
+                                    <div :class="hasUpperCase ? 'text-positive' : 'text-grey'">
+                                        <q-icon :name="hasUpperCase ? 'check_circle' : 'radio_button_unchecked'" />
+                                        Mayúscula
+                                    </div>
+                                    <div :class="hasLowerCase ? 'text-positive' : 'text-grey'">
+                                        <q-icon :name="hasLowerCase ? 'check_circle' : 'radio_button_unchecked'" />
+                                        Minúscula
+                                    </div>
+                                    <div :class="hasNumber ? 'text-positive' : 'text-grey'">
+                                        <q-icon :name="hasNumber ? 'check_circle' : 'radio_button_unchecked'" /> Número
+                                    </div>
+                                    <div :class="hasSpecial ? 'text-positive' : 'text-grey'">
+                                        <q-icon :name="hasSpecial ? 'check_circle' : 'radio_button_unchecked'" />
+                                        Especial
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Duración de sesión -->
+                        <q-input v-model.number="userForm.session_timeout_min" label="Duración de sesión (minutos)"
+                            type="number" min="0"
+                            hint="Opcional: deje en 0 o vacío para usar la configuración del rol o global"
+                            class="q-mt-md">
+                            <template v-slot:prepend>
+                                <q-icon name="timer" />
+                            </template>
+                        </q-input>
+
+                        <q-toggle v-model="userForm.two_factor_enabled" label="Habilitar Segundo Factor (2FA)"
+                            color="primary" class="q-mt-md" />
+                        <div class="row justify-end q-mt-md">
+                            <q-btn label="Cancelar" color="negative" flat v-close-popup />
+                            <q-btn label="Guardar" type="submit" color="primary" />
+                        </div>
+                    </q-form>
+                </q-card-section>
+            </q-card>
+        </q-dialog>
+
+        <!-- Modal Rol -->
+        <q-dialog v-model="roleModalOpen" persistent>
+            <q-card style="min-width: 400px">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">{{ editingRole ? 'Editar Rol' : 'Nuevo Rol' }}</div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+                <q-card-section>
+                    <q-form @submit="saveRole">
+                        <q-input v-model="roleForm.name" label="Nombre" :rules="[val => !!val || 'Requerido']" />
+                        <q-input v-model="roleForm.description" label="Descripción" />
+
+                        <!-- Duración de sesión para usuarios con este rol -->
+                        <q-input v-model.number="roleForm.session_timeout_min" label="Duración de sesión (minutos)"
+                            type="number" min="0" hint="Opcional: deje en 0 o vacío para usar la configuración global"
+                            class="q-mt-md">
+                            <template v-slot:prepend>
+                                <q-icon name="timer" />
+                            </template>
+                        </q-input>
+
+                        <div class="row justify-end q-mt-md">
+                            <q-btn label="Cancelar" color="negative" flat v-close-popup />
+                            <q-btn label="Guardar" type="submit" color="primary" />
+                        </div>
+                    </q-form>
+                </q-card-section>
+            </q-card>
+        </q-dialog>
+
+        <!-- Modal Asignar Roles a Usuario -->
+        <q-dialog v-model="assignRoleModalOpen" persistent>
+            <q-card style="min-width: 400px">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">Asignar Roles a {{ selectedUser?.first_name }}</div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+                <q-card-section>
+                    <q-input v-model="assignRoleSearch" dense outlined placeholder="Buscar rol..." class="q-mb-md">
+                        <template v-slot:prepend>
+                            <q-icon name="search" />
+                        </template>
+                        <template v-slot:append v-if="assignRoleSearch">
+                            <q-icon name="close" class="cursor-pointer" @click="assignRoleSearch = ''" />
+                        </template>
+                    </q-input>
+                    <div v-for="role in filteredRolesForAssign" :key="role.id" class="q-mb-sm">
+                        <q-checkbox v-model="userRolesSelection" :val="role.id" :label="role.name"
+                            @update:model-value="toggleRole(role.id)" />
+                    </div>
+                </q-card-section>
+                <q-card-actions align="right">
+                    <q-btn flat label="Cerrar" color="primary" v-close-popup />
+                </q-card-actions>
+            </q-card>
+        </q-dialog>
+
+        <!-- Modal Asignar Permisos a Rol -->
+        <q-dialog v-model="assignPermissionModalOpen" persistent>
+            <q-card style="min-width: 600px">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">Asignar Permisos a {{ selectedRole?.name }}</div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+                <q-card-section style="max-height: 50vh" class="scroll">
+                    <q-input v-model="assignPermissionSearch" dense outlined placeholder="Buscar permiso..."
+                        class="q-mb-md">
+                        <template v-slot:prepend>
+                            <q-icon name="search" />
+                        </template>
+                        <template v-slot:append v-if="assignPermissionSearch">
+                            <q-icon name="close" class="cursor-pointer" @click="assignPermissionSearch = ''" />
+                        </template>
+                    </q-input>
+                    <div v-for="perm in filteredPermissionsForAssign" :key="perm.id" class="q-mb-sm">
+                        <q-checkbox v-model="rolePermissionsSelection" :val="perm.id"
+                            :label="perm.name + ' - ' + perm.description"
+                            @update:model-value="togglePermission(perm.id)" />
+                    </div>
+                </q-card-section>
+                <q-card-actions align="right">
+                    <q-btn flat label="Cerrar" color="primary" v-close-popup />
+                </q-card-actions>
+            </q-card>
+        </q-dialog>
+
+        <!-- Modal Asignar Permisos Directos a Usuario -->
+        <q-dialog v-model="assignUserPermissionModalOpen" persistent>
+            <q-card style="min-width: 600px">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">Permisos Directos de {{ selectedUser?.first_name }}</div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+                <q-card-section style="max-height: 50vh" class="scroll">
+                    <q-banner class="bg-indigo-1 text-indigo-9 q-mb-md rounded-borders" dense>
+                        Estos permisos aplican directamente al usuario, complementando los de sus roles. (Efectivos en
+                        tiempo
+                        real).
+                    </q-banner>
+                    <q-input v-model="assignUserPermissionSearch" dense outlined placeholder="Buscar permiso..."
+                        class="q-mb-md">
+                        <template v-slot:prepend>
+                            <q-icon name="search" />
+                        </template>
+                        <template v-slot:append v-if="assignUserPermissionSearch">
+                            <q-icon name="close" class="cursor-pointer" @click="assignUserPermissionSearch = ''" />
+                        </template>
+                    </q-input>
+                    <div v-for="perm in filteredPermissionsForUserAssign" :key="perm.id" class="q-mb-sm">
+                        <q-checkbox v-model="userPermissionsSelection" :val="perm.id"
+                            :label="perm.name + ' - ' + perm.description"
+                            @update:model-value="toggleUserPermission(perm.id)" />
+                    </div>
+                </q-card-section>
+                <q-card-actions align="right">
+                    <q-btn flat label="Cerrar" color="primary" v-close-popup />
+                </q-card-actions>
+            </q-card>
+        </q-dialog>
+
+        <!-- Modal Ver Árbol de Accesos -->
+        <q-dialog v-model="viewUserAccessModalOpen">
+            <q-card style="min-width: 650px; max-width: 90vw;">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">Accesos de {{ selectedUserAccess?.first_name }} {{
+                        selectedUserAccess?.last_name }}
+                    </div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+
+                <q-card-section class="scroll" style="max-height: 70vh">
+                    <div v-if="loadingUserAccess" class="row justify-center q-pa-xl">
+                        <q-spinner color="primary" size="3em" />
+                    </div>
+                    <div v-else>
+                        <!-- Permisos Directos -->
+                        <div class="text-subtitle1 text-weight-bold q-mb-sm text-primary">
+                            <q-icon name="vpn_key" class="q-mr-sm" size="sm" />Permisos Directos
+                        </div>
+                        <div v-if="userAccessData.directPermissions.length === 0" class="text-grey q-mb-md">
+                            No tiene permisos directos asignados. (Confía íntegramente en sus roles).
+                        </div>
+                        <div v-else class="q-mb-md row q-gutter-xs">
+                            <q-chip v-for="perm in userAccessData.directPermissions" :key="perm.id" color="primary"
+                                text-color="white" icon="check_circle" size="sm">
+                                {{ perm.name }}
+                                <q-tooltip>{{ perm.description }}</q-tooltip>
+                            </q-chip>
+                        </div>
+
+                        <q-separator class="q-mb-md" />
+
+                        <!-- Permisos por Rol -->
+                        <div class="text-subtitle1 text-weight-bold q-mb-sm text-secondary">
+                            <q-icon name="security" class="q-mr-sm" size="sm" />Roles y Permisos Heredados
+                        </div>
+                        <div v-if="userAccessData.roles.length === 0" class="text-grey">
+                            El usuario no pertenece a ningún rol de sistema.
+                        </div>
+                        <q-list v-else bordered class="rounded-borders">
+                            <q-expansion-item v-for="role in userAccessData.roles" :key="role.id" group="roles"
+                                icon="manage_accounts" :label="role.name"
+                                :caption="role.permissions.length + ' permisos heredados'"
+                                header-class="text-secondary">
+                                <q-card>
+                                    <q-card-section class="bg-grey-1">
+                                        <div class="text-caption text-grey-8 q-mb-sm text-italic"
+                                            v-if="role.description">{{
+                                                role.description }}</div>
+                                        <div v-if="role.permissions.length === 0" class="text-grey text-caption">
+                                            Este rol es visual pero no confiere permisos de sistema.
+                                        </div>
+                                        <div v-else class="row q-gutter-xs">
+                                            <q-chip v-for="perm in role.permissions" :key="perm.id" color="secondary"
+                                                text-color="white" size="xs" outline>
+                                                {{ perm.name }}
+                                                <q-tooltip>{{ perm.description }}</q-tooltip>
+                                            </q-chip>
+                                        </div>
+                                    </q-card-section>
+                                </q-card>
+                            </q-expansion-item>
+                        </q-list>
+                    </div>
+                </q-card-section>
+                <q-card-actions align="right">
+                    <q-btn flat label="Cerrar" color="primary" v-close-popup />
+                </q-card-actions>
+            </q-card>
+        </q-dialog>
+
+        <!-- Modal Permiso -->
+        <q-dialog v-model="permissionModalOpen" persistent>
+            <q-card style="min-width: 400px">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">{{ editingPermission ? 'Editar Permiso' : 'Nuevo Permiso' }}</div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+                <q-card-section>
+                    <q-form @submit="savePermission">
+                        <q-input v-model="permissionForm.name" label="Nombre" :rules="[val => !!val || 'Requerido']"
+                            hint="Ejemplo: create_user, delete_role, view_reports" />
+                        <div class="row q-col-gutter-md q-mt-sm">
+                            <div class="col-6">
+                                <q-input v-model="permissionForm.resource" label="Recurso"
+                                    :rules="[val => !!val || 'Requerido']" hint="Ej: users, roles, sessions" />
+                            </div>
+                            <div class="col-6">
+                                <q-select v-model="permissionForm.action" label="Acción"
+                                    :rules="[val => !!val || 'Requerido']"
+                                    :options="['create', 'read', 'update', 'delete', 'assign', 'remove', 'export', 'import']"
+                                    hint="Tipo de acción" />
+                            </div>
+                        </div>
+                        <q-input v-model="permissionForm.description" label="Descripción" class="q-mt-md"
+                            hint="Descripción breve de lo que permite este permiso" />
+                        <div class="row justify-end q-mt-md">
+                            <q-btn label="Cancelar" color="negative" flat v-close-popup />
+                            <q-btn label="Guardar" type="submit" color="primary" />
+                        </div>
+                    </q-form>
+                </q-card-section>
+            </q-card>
+        </q-dialog>
+
+
+        <!-- Modal Reset Password (Admin) -->
+        <q-dialog v-model="resetPasswordModalOpen" persistent>
+            <q-card style="min-width: 400px">
+                <q-card-section class="row items-center q-pb-none">
+                    <div class="text-h6">Asignar Nueva Clave a {{ selectedUser?.email }}</div>
+                    <q-space />
+                    <q-btn icon="close" flat round dense v-close-popup />
+                </q-card-section>
+
+                <q-card-section>
+                    <q-form @submit="handleResetPassword">
+                        <div class="row items-center q-mb-sm">
+                            <q-btn label="Generar Clave" color="secondary" size="sm" @click="generateResetPassword"
+                                icon="vpn_key" class="q-mr-sm" />
+                        </div>
+
+                        <q-input v-model="resetForm.password" label="Nueva Contraseña"
+                            :type="isResetPasswordVisible ? 'text' : 'password'" class="no-uppercase"
+                            :rules="[val => !!val || 'Requerido', val => validatePasswordStrength(val) === true || validatePasswordStrength(val)]">
+                            <template v-slot:append>
+                                <q-icon :name="isResetPasswordVisible ? 'visibility' : 'visibility_off'"
+                                    class="cursor-pointer" @click="isResetPasswordVisible = !isResetPasswordVisible" />
+                            </template>
+                        </q-input>
+
+                        <q-input v-model="resetForm.confirmPassword" label="Confirmar Contraseña"
+                            :type="isResetConfirmVisible ? 'text' : 'password'" class="no-uppercase"
+                            :rules="[val => val === resetForm.password || 'Las contraseñas no coinciden']">
+                            <template v-slot:append>
+                                <q-icon :name="isResetConfirmVisible ? 'visibility' : 'visibility_off'"
+                                    class="cursor-pointer" @click="isResetConfirmVisible = !isResetConfirmVisible" />
+                            </template>
+                        </q-input>
+
+                        <div class="q-mt-sm q-pa-sm bg-grey-2 rounded-borders">
+                            <div class="text-caption text-weight-bold q-mb-xs">Requisitos de contraseña:</div>
+                            <div class="row q-gutter-x-md">
+                                <div :class="hasMinLengthReset ? 'text-positive' : 'text-grey'">
+                                    <q-icon :name="hasMinLengthReset ? 'check_circle' : 'radio_button_unchecked'" /> 8+
+                                </div>
+                                <div :class="hasUpperCaseReset ? 'text-positive' : 'text-grey'">
+                                    <q-icon :name="hasUpperCaseReset ? 'check_circle' : 'radio_button_unchecked'" /> A-Z
+                                </div>
+                                <div :class="hasLowerCaseReset ? 'text-positive' : 'text-grey'">
+                                    <q-icon :name="hasLowerCaseReset ? 'check_circle' : 'radio_button_unchecked'" /> a-z
+                                </div>
+                                <div :class="hasNumberReset ? 'text-positive' : 'text-grey'">
+                                    <q-icon :name="hasNumberReset ? 'check_circle' : 'radio_button_unchecked'" /> 0-9
+                                </div>
+                                <div :class="hasSpecialReset ? 'text-positive' : 'text-grey'">
+                                    <q-icon :name="hasSpecialReset ? 'check_circle' : 'radio_button_unchecked'" /> !@#
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row justify-end q-mt-md">
+                            <q-btn label="Cancelar" color="negative" flat v-close-popup
+                                :disable="isResettingPassword" />
+                            <q-btn label="Actualizar Clave" type="submit" color="primary"
+                                :loading="isResettingPassword" />
+                        </div>
+                    </q-form>
+                </q-card-section>
+            </q-card>
+        </q-dialog>
+
+    </q-page>
+</template>
+
+<script setup>
+import { ref, onMounted, reactive, computed, watch } from 'vue'
+
+import { authApi as api } from 'boot/axios'
+import { useQuasar, LocalStorage, exportFile } from 'quasar'
+
+
+const $q = useQuasar()
+const tab = ref('users')
+const maintenanceLoading = ref(false)
+const maintenanceLogs = ref([])
+
+
+// --- Usuarios ---
+const users = ref([])
+const loadingUsers = ref(false)
+const userColumns = [
+    { name: 'first_name', label: 'Nombre', field: 'first_name', align: 'left' },
+    { name: 'last_name', label: 'Apellido', field: 'last_name', align: 'left' },
+    { name: 'cedula', label: 'Cédula', field: 'cedula', align: 'left' },
+    { name: 'email', label: 'Email', field: 'email', align: 'left' },
+    { name: 'status', label: 'Estado', field: 'status', align: 'center' },
+    { name: 'actions', label: 'Acciones', field: 'actions', align: 'center' }
+]
+const userModalOpen = ref(false)
+const editingUser = ref(false)
+const userForm = reactive({ id: null, first_name: '', last_name: '', cedula: '', email: '', password: '', confirmPassword: '', session_timeout_min: null, two_factor_enabled: true })
+const isPasswordVisible = ref(false)
+const isConfirmPasswordVisible = ref(false)
+const selectedUser = ref(null)
+const assignRoleModalOpen = ref(false)
+const userRolesSelection = ref([])
+const assignUserPermissionModalOpen = ref(false)
+const userPermissionsSelection = ref([])
+
+// --- Árbol de Accesos de Usuario ---
+const viewUserAccessModalOpen = ref(false)
+const selectedUserAccess = ref(null)
+const loadingUserAccess = ref(false)
+const userAccessData = reactive({
+    directPermissions: [],
+    roles: []
+})
+
+// --- Reset Password (Admin) ---
+const resetPasswordModalOpen = ref(false)
+const isResetPasswordVisible = ref(false)
+const isResetConfirmVisible = ref(false)
+const isResettingPassword = ref(false)
+const resetForm = reactive({ password: '', confirmPassword: '' })
+const hasMinLengthReset = computed(() => (resetForm.password || '').length >= 8)
+const hasUpperCaseReset = computed(() => /[A-Z]/.test(resetForm.password || ''))
+const hasLowerCaseReset = computed(() => /[a-z]/.test(resetForm.password || ''))
+const hasNumberReset = computed(() => /[0-9]/.test(resetForm.password || ''))
+const hasSpecialReset = computed(() => /[!"#$%&/=.\-*;]/.test(resetForm.password || ''))
+
+// --- Roles ---
+const roles = ref([])
+const loadingRoles = ref(false)
+const roleColumns = [
+    { name: 'name', label: 'Nombre', field: 'name', align: 'left' },
+    { name: 'description', label: 'Descripción', field: 'description', align: 'left' },
+    { name: 'actions', label: 'Acciones', field: 'actions', align: 'center' }
+]
+const roleModalOpen = ref(false)
+const editingRole = ref(false)
+const roleForm = reactive({ id: null, name: '', description: '', session_timeout_min: null })
+const selectedRole = ref(null)
+const assignPermissionModalOpen = ref(false)
+const rolePermissionsSelection = ref([])
+
+// --- Permisos ---
+const permissions = ref([])
+const loadingPermissions = ref(false)
+const permissionColumns = [
+    { name: 'name', label: 'Nombre', field: 'name', align: 'left' },
+    { name: 'resource', label: 'Recurso', field: 'resource', align: 'left' },
+    { name: 'action', label: 'Acción', field: 'action', align: 'left' },
+    { name: 'description', label: 'Descripción', field: 'description', align: 'left' },
+    { name: 'actions', label: 'Acciones', field: 'actions', align: 'center' }
+]
+const permissionModalOpen = ref(false)
+const editingPermission = ref(false)
+const permissionForm = reactive({ id: null, name: '', resource: '', action: '', description: '' })
+
+// --- Mantenimiento ---
+const maintenanceColumns = [
+    { name: 'performed_at', label: 'Fecha/Hora', field: 'performed_at', align: 'left', sortable: true },
+    { name: 'username', label: 'Usuario', field: 'username', align: 'left' },
+    { name: 'ip_address', label: 'IP', field: 'ip_address', align: 'left' },
+    { name: 'table_name', label: 'Tabla', field: 'table_name', align: 'left' },
+    { name: 'records_purged', label: 'R. Purgados', field: 'records_purged', align: 'center' },
+    { name: 'duration_ms', label: 'Duración', field: 'duration_ms', align: 'center' },
+    { name: 'status', label: 'Estado', field: 'status', align: 'center' },
+    { name: 'batch_id', label: 'Lote (UUID)', field: 'batch_id', align: 'left', classes: 'text-caption' }
+]
+
+
+// --- Búsquedas ---
+const userSearch = ref('')
+const selectedUsers = ref([])
+const roleSearch = ref('')
+const permissionSearch = ref('')
+const assignRoleSearch = ref('')
+const assignPermissionSearch = ref('')
+const assignUserPermissionSearch = ref('')
+
+// --- Computed para filtrar ---
+const filteredUsers = computed(() => {
+    if (!userSearch.value) return users.value
+    const search = userSearch.value.toLowerCase()
+    return users.value.filter(u =>
+        String(u.first_name || '').toLowerCase().includes(search) ||
+        String(u.last_name || '').toLowerCase().includes(search) ||
+        String(u.cedula || '').toLowerCase().includes(search) ||
+        String(u.email || '').toLowerCase().includes(search)
+    )
+})
+
+const filteredRoles = computed(() => {
+    if (!roleSearch.value) return roles.value
+    const search = roleSearch.value.toLowerCase()
+    return roles.value.filter(r =>
+        r.name?.toLowerCase().includes(search) ||
+        r.description?.toLowerCase().includes(search)
+    )
+})
+
+const filteredPermissions = computed(() => {
+    if (!permissionSearch.value) return permissions.value
+    const search = permissionSearch.value.toLowerCase()
+    return permissions.value.filter(p =>
+        p.name?.toLowerCase().includes(search) ||
+        p.resource?.toLowerCase().includes(search) ||
+        p.action?.toLowerCase().includes(search) ||
+        p.description?.toLowerCase().includes(search)
+    )
+})
+
+const wrapCsvValue = (val, formatFn, row) => {
+    let formatted = formatFn !== void 0 ? formatFn(val, row) : val
+    formatted = formatted === void 0 || formatted === null ? '' : String(formatted)
+    formatted = formatted.split('"').join('""')
+    return `"${formatted}"`
+}
+
+const exportPermissionsJSON = () => {
+    const dataToExport = filteredPermissions.value.map(p => ({
+        id: p.id,
+        nombre: p.name,
+        recurso: p.resource,
+        accion: p.action,
+        descripcion: p.description
+    }))
+    const content = JSON.stringify(dataToExport, null, 2)
+    const status = exportFile('permisos_sistema.json', content, 'application/json')
+    if (status !== true) $q.notify({ type: 'negative', message: 'Error al exportar JSON' })
+}
+
+const exportPermissionsCSV = () => {
+    const columns = permissionColumns.filter(col => col.name !== 'actions')
+    const content = [columns.map(col => wrapCsvValue(col.label))].concat(
+        filteredPermissions.value.map(row => columns.map(col => wrapCsvValue(
+            typeof col.field === 'function' ? col.field(row) : row[col.field || col.name],
+            col.format,
+            row
+        )).join(','))
+    ).join('\r\n')
+
+    const status = exportFile('permisos_sistema.csv', "\ufeff" + content, 'text/csv')
+    if (status !== true) $q.notify({ type: 'negative', message: 'Error al exportar CSV' })
+}
+
+const exportPermissionsExcel = () => {
+    const columns = permissionColumns.filter(col => col.name !== 'actions')
+    let table = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Permisos</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body>'
+    table += '<table border="1"><thead><tr>'
+    columns.forEach(col => {
+        table += `<th style="background-color: #eeeeee; font-weight: bold;">${col.label}</th>`
+    })
+    table += '</tr></thead><tbody>'
+    filteredPermissions.value.forEach(row => {
+        table += '<tr>'
+        columns.forEach(col => {
+            const val = typeof col.field === 'function' ? col.field(row) : row[col.field || col.name]
+            table += `<td>${val || ''}</td>`
+        })
+        table += '</tr>'
+    })
+    table += '</tbody></table></body></html>'
+
+    const status = exportFile('permisos_sistema.xls', table, 'application/vnd.ms-excel')
+    if (status !== true) $q.notify({ type: 'negative', message: 'Error al exportar Excel' })
+}
+
+const exportUserAccess = async (format, scope) => {
+    loadingUsers.value = true
+    try {
+        const targetUsers = scope === 'selected' ? selectedUsers.value : filteredUsers.value
+        if (targetUsers.length === 0) {
+            $q.notify({ type: 'warning', message: 'No hay usuarios para exportar' })
+            return
+        }
+
+        const [usersRolesRes, rolesPermsRes, userPermsRes] = await Promise.all([
+            api.get('/users_roles'),
+            api.get('/roles_permissions'),
+            api.get('/users_permissions')
+        ])
+
+        const usersRolesMap = usersRolesRes.data || []
+        const rolesPermsMap = rolesPermsRes.data || []
+        const userPermsMap = userPermsRes.data || []
+
+        const reportData = targetUsers.map(u => {
+            const userRoleIds = usersRolesMap.filter(ur => ur.user_id === u.id).map(ur => ur.role_id)
+            const roleNames = roles.value.filter(r => userRoleIds.includes(r.id)).map(r => r.name)
+
+            const rolePermIds = rolesPermsMap.filter(rp => userRoleIds.includes(rp.role_id)).map(rp => rp.permission_id)
+            const permsFromRoles = permissions.value.filter(p => rolePermIds.includes(p.id)).map(p => p.name)
+
+            const directPermIds = userPermsMap.filter(up => up.user_id === u.id).map(up => up.permission_id)
+            const directPerms = permissions.value.filter(p => directPermIds.includes(p.id)).map(p => p.name)
+
+            const totalPerms = [...new Set([...permsFromRoles, ...directPerms])]
+
+            return {
+                id: u.id,
+                email: u.email,
+                nombre: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Sin Nombre',
+                cedula: u.cedula,
+                estado: u.status === 'active' ? 'Activo' : 'Suspendido',
+                roles: roleNames.join('; '),
+                permisos_heredados: permsFromRoles.join('; '),
+                permisos_directos: directPerms.join('; '),
+                total_permisos: totalPerms.join('; ')
+            }
+        })
+
+        if (format === 'json') {
+            const content = JSON.stringify(reportData, null, 2)
+            exportFile(`reporte_accesos_${scope}.json`, content, 'application/json')
+        } else if (format === 'csv') {
+            const cols = [
+                { label: 'ID', field: 'id' },
+                { label: 'Email', field: 'email' },
+                { label: 'Nombre', field: 'nombre' },
+                { label: 'Cedula', field: 'cedula' },
+                { label: 'Estado', field: 'estado' },
+                { label: 'Roles', field: 'roles' },
+                { label: 'Permisos Heredados', field: 'permisos_heredados' },
+                { label: 'Permisos Directos', field: 'permisos_directos' },
+                { label: 'Total Permisos', field: 'total_permisos' }
+            ]
+            const content = [cols.map(c => wrapCsvValue(c.label))].concat(
+                reportData.map(row => cols.map(c => wrapCsvValue(row[c.field])).join(','))
+            ).join('\r\n')
+            exportFile(`reporte_accesos_${scope}.csv`, "\ufeff" + content, 'text/csv')
+        } else if (format === 'excel') {
+            const cols = ['ID', 'Email', 'Nombre', 'Cedula', 'Estado', 'Roles', 'Permisos Heredados', 'Permisos Directos', 'Total Permisos']
+            let table = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>'
+            table += '<table border="1"><thead><tr>'
+            cols.forEach(c => table += `<th style="background-color: #eeeeee; font-weight: bold;">${c}</th>`)
+            table += '</tr></thead><tbody>'
+            reportData.forEach(row => {
+                table += `<tr><td>${row.id}</td><td>${row.email}</td><td>${row.nombre}</td><td>${row.cedula}</td><td>${row.estado}</td><td>${row.roles}</td><td>${row.permisos_heredados}</td><td>${row.permisos_directos}</td><td>${row.total_permisos}</td></tr>`
+            })
+            table += '</tbody></table></body></html>'
+            exportFile(`reporte_accesos_${scope}.xls`, table, 'application/vnd.ms-excel')
+        }
+    } catch (error) {
+        console.error(error)
+        $q.notify({ type: 'negative', message: 'Error al generar el reporte' })
+    } finally {
+        loadingUsers.value = false
+    }
+}
+
+const filteredRolesForAssign = computed(() => {
+    if (!assignRoleSearch.value) return roles.value
+    const search = assignRoleSearch.value.toLowerCase()
+    return roles.value.filter(r =>
+        r.name?.toLowerCase().includes(search) ||
+        r.description?.toLowerCase().includes(search)
+    )
+})
+
+const filteredPermissionsForAssign = computed(() => {
+    if (!assignPermissionSearch.value) return permissions.value
+    const search = assignPermissionSearch.value.toLowerCase()
+    return permissions.value.filter(p =>
+        p.name?.toLowerCase().includes(search) ||
+        p.resource?.toLowerCase().includes(search) ||
+        p.action?.toLowerCase().includes(search) ||
+        p.description?.toLowerCase().includes(search)
+    )
+})
+
+const filteredPermissionsForUserAssign = computed(() => {
+    if (!assignUserPermissionSearch.value) return permissions.value
+    const search = assignUserPermissionSearch.value.toLowerCase()
+    return permissions.value.filter(p =>
+        p.name?.toLowerCase().includes(search) ||
+        p.resource?.toLowerCase().includes(search) ||
+        p.action?.toLowerCase().includes(search) ||
+        p.description?.toLowerCase().includes(search)
+    )
+})
+
+// --- Carga Inicial ---
+onMounted(() => {
+    fetchUsers()
+    fetchRoles()
+    fetchPermissions()
+})
+
+watch(tab, async (newTab) => {
+    if (newTab === 'maintenance') {
+        try {
+            await fetchMaintenanceLogs()
+        } catch (error) {
+            console.error('Error fetching maintenance logs:', error)
+        }
+    }
+})
+
+
+
+// --- Funciones Usuarios ---
+const fetchUsers = async () => {
+    loadingUsers.value = true
+    try {
+        const res = await api.get('/users')
+        users.value = Array.isArray(res.data) ? res.data : []
+    } catch (error) {
+        users.value = []
+        $q.notify({ type: 'negative', message: 'Error al cargar usuarios' })
+    } finally {
+        loadingUsers.value = false
+    }
+}
+
+const openUserModal = (user = null) => {
+    if (user) {
+        editingUser.value = true
+        Object.assign(userForm, user)
+    } else {
+        editingUser.value = false
+        Object.assign(userForm, { id: null, first_name: '', last_name: '', cedula: '', email: '', password: '', confirmPassword: '', session_timeout_min: null, two_factor_enabled: true })
+        isPasswordVisible.value = false
+        isConfirmPasswordVisible.value = false
+    }
+    userModalOpen.value = true
+}
+
+const saveUser = async () => {
+    try {
+        if (editingUser.value) {
+            await api.put(`/users/${userForm.id}`, userForm)
+            $q.notify({ type: 'positive', message: 'Usuario actualizado' })
+        } else {
+            await api.post('/users', userForm)
+            $q.notify({ type: 'positive', message: 'Usuario creado' })
+        }
+        userModalOpen.value = false
+        fetchUsers()
+    } catch (error) {
+        $q.notify({ type: 'negative', message: 'Error al guardar usuario' })
+    }
+}
+
+const confirmDeleteUser = (user) => {
+    $q.dialog({
+        title: 'Confirmar',
+        message: `¿Eliminar usuario ${user.first_name}?`,
+        cancel: true,
+        persistent: true
+    }).onOk(async () => {
+        try {
+            await api.delete(`/users/${user.id}`)
+            $q.notify({ type: 'positive', message: 'Usuario eliminado' })
+            fetchUsers()
+        } catch (error) {
+            $q.notify({ type: 'negative', message: 'Error al eliminar usuario' })
+        }
+    })
+}
+
+const confirmToggleStatus = (user) => {
+    const isSuspending = user.status === 'active'
+    const action = isSuspending ? 'suspender' : 'reactivar'
+    const newStatus = isSuspending ? 'suspended' : 'active'
+    $q.dialog({
+        title: 'Confirmar',
+        message: `¿${isSuspending ? 'Suspender' : 'Reactivar'} al usuario ${user.first_name} ${user.last_name}?${isSuspending ? ' El usuario no podrá iniciar sesión.' : ' Se resetearán sus intentos de recuperación.'}`,
+        cancel: true,
+        persistent: true
+    }).onOk(async () => {
+        try {
+            await api.patch(`/users/${user.id}/status`, { status: newStatus })
+            $q.notify({ type: 'positive', message: `Usuario ${action === 'suspender' ? 'suspendido' : 'reactivado'} exitosamente` })
+            fetchUsers()
+        } catch (error) {
+            $q.notify({ type: 'negative', message: `Error al ${action} usuario` })
+        }
+    })
+}
+
+// --- Funciones Roles ---
+const fetchRoles = async () => {
+    loadingRoles.value = true
+    try {
+        const res = await api.get('/roles')
+        roles.value = Array.isArray(res.data) ? res.data : []
+    } catch (error) {
+        roles.value = []
+        $q.notify({ type: 'negative', message: 'Error al cargar roles' })
+    } finally {
+        loadingRoles.value = false
+    }
+}
+
+const openRoleModal = (role = null) => {
+    if (role) {
+        editingRole.value = true
+        Object.assign(roleForm, role)
+    } else {
+        editingRole.value = false
+        Object.assign(roleForm, { id: null, name: '', description: '', session_timeout_min: null })
+    }
+    roleModalOpen.value = true
+}
+
+const saveRole = async () => {
+    try {
+        if (editingRole.value) {
+            await api.put(`/roles/${roleForm.id}`, roleForm)
+            $q.notify({ type: 'positive', message: 'Rol actualizado' })
+        } else {
+            await api.post('/roles', roleForm)
+            $q.notify({ type: 'positive', message: 'Rol creado' })
+        }
+        roleModalOpen.value = false
+        fetchRoles()
+    } catch (error) {
+        $q.notify({ type: 'negative', message: 'Error al guardar rol' })
+    }
+}
+
+const confirmDeleteRole = (role) => {
+    $q.dialog({
+        title: 'Confirmar',
+        message: `¿Eliminar rol ${role.name}?`,
+        cancel: true,
+        persistent: true
+    }).onOk(async () => {
+        try {
+            await api.delete(`/roles/${role.id}`)
+            $q.notify({ type: 'positive', message: 'Rol eliminado' })
+            fetchRoles()
+        } catch (error) {
+            $q.notify({ type: 'negative', message: 'Error al eliminar rol' })
+        }
+    })
+}
+
+// --- Funciones Permisos ---
+const fetchPermissions = async () => {
+    loadingPermissions.value = true
+    try {
+        const res = await api.get('/permissions')
+        permissions.value = Array.isArray(res.data) ? res.data : []
+    } catch (error) {
+        permissions.value = []
+        $q.notify({ type: 'negative', message: 'Error al cargar permisos' })
+    } finally {
+        loadingPermissions.value = false
+    }
+}
+
+const openPermissionModal = (permission = null) => {
+    if (permission) {
+        editingPermission.value = true
+        Object.assign(permissionForm, permission)
+    } else {
+        editingPermission.value = false
+        Object.assign(permissionForm, { id: null, name: '', resource: '', action: '', description: '' })
+    }
+    permissionModalOpen.value = true
+}
+
+const savePermission = async () => {
+    try {
+        if (editingPermission.value) {
+            await api.put(`/permissions/${permissionForm.id}`, permissionForm)
+            $q.notify({ type: 'positive', message: 'Permiso actualizado' })
+        } else {
+            await api.post('/permissions', permissionForm)
+            $q.notify({ type: 'positive', message: 'Permiso creado' })
+        }
+        permissionModalOpen.value = false
+        fetchPermissions()
+    } catch (error) {
+        const msg = error.response?.data?.error || 'Error al guardar permiso'
+        $q.notify({ type: 'negative', message: msg })
+    }
+}
+
+const confirmDeletePermission = (permission) => {
+    $q.dialog({
+        title: 'Confirmar',
+        message: `¿Eliminar permiso "${permission.name}"? Se quitará de todos los roles y usuarios que lo tengan asignado.`,
+        cancel: true,
+        persistent: true
+    }).onOk(async () => {
+        try {
+            await api.delete(`/permissions/${permission.id}`)
+            $q.notify({ type: 'positive', message: 'Permiso eliminado' })
+            fetchPermissions()
+        } catch (error) {
+            const msg = error.response?.data?.error || 'Error al eliminar permiso'
+            $q.notify({ type: 'negative', message: msg })
+        }
+    })
+}
+
+// --- Asignaciones ---
+const openAssignRoleModal = async (user) => {
+    selectedUser.value = user
+    userRolesSelection.value = [] // Reset
+    await fetchUserRoles(user.id)
+    assignRoleModalOpen.value = true
+}
+
+const openResetPasswordModal = (user) => {
+    selectedUser.value = user
+    resetForm.password = ''
+    resetForm.confirmPassword = ''
+    isResetPasswordVisible.value = false
+    isResetConfirmVisible.value = false
+    resetPasswordModalOpen.value = true
+}
+
+const handleResetPassword = async () => {
+    isResettingPassword.value = true
+    try {
+        await api.post(`/users/${selectedUser.value.id}/password`, {
+            password: resetForm.password
+        })
+        $q.notify({ type: 'positive', message: 'Contraseña actualizada exitosamente' })
+        resetPasswordModalOpen.value = false
+    } catch (error) {
+        const msg = error.response?.data?.error || 'Error al actualizar contraseña'
+        $q.notify({ type: 'negative', message: msg, timeout: 5000 })
+    } finally {
+        isResettingPassword.value = false
+    }
+}
+
+const generateResetPassword = () => {
+    const length = 12
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&/=.-*;"
+    let retVal = ""
+    retVal += "A"
+    retVal += "a"
+    retVal += "1"
+    retVal += "."
+
+    for (let i = 0, n = charset.length; i < length - 4; ++i) {
+        retVal += charset.charAt(Math.floor(Math.random() * n))
+    }
+    retVal = retVal.split('').sort(function () { return 0.5 - Math.random() }).join('');
+
+    resetForm.password = retVal
+    resetForm.confirmPassword = retVal
+}
+
+const hasPermission = (permName) => {
+    const permissions = LocalStorage.getItem('permissions') || []
+    return permissions.some(p => p.name === permName)
+}
+
+const fetchUserRoles = async (userId) => {
+    try {
+        const res = await api.get('/users_roles')
+        const data = Array.isArray(res.data) ? res.data : []
+        // Filtrar los que corresponden a este usuario
+        const userRoles = data.filter(ur => ur.user_id === userId)
+        userRolesSelection.value = userRoles.map(ur => ur.role_id)
+    } catch (error) {
+        console.error(error)
+        userRolesSelection.value = []
+        $q.notify({ type: 'negative', message: 'Error al cargar roles del usuario' })
+    }
+}
+
+const toggleRole = async (roleId) => {
+    if (!selectedUser.value) return
+    const isAdded = userRolesSelection.value.includes(roleId)
+    try {
+        if (isAdded) {
+            await api.post('/assign-role', { userId: selectedUser.value.id, roleId })
+            $q.notify({ type: 'positive', message: 'Rol asignado' })
+        } else {
+            await api.post('/remove-role', { userId: selectedUser.value.id, roleId })
+            $q.notify({ type: 'positive', message: 'Rol removido' })
+        }
+    } catch (error) {
+        $q.notify({ type: 'negative', message: 'Error al actualizar rol' })
+        // Revertir cambio local si falla (complejo con v-model directo, pero aceptable para MVP)
+    }
+}
+
+const openAssignUserPermissionModal = (user) => {
+    selectedUser.value = user
+    userPermissionsSelection.value = []
+    fetchUserPermissions(user.id)
+    assignUserPermissionModalOpen.value = true
+}
+
+const fetchUserPermissions = async (userId) => {
+    try {
+        const res = await api.get('/users_permissions')
+        const data = Array.isArray(res.data) ? res.data : []
+        const userPerms = data.filter(up => up.user_id === userId)
+        userPermissionsSelection.value = userPerms.map(up => up.permission_id)
+    } catch (error) {
+        console.error(error)
+        userPermissionsSelection.value = []
+    }
+}
+
+const toggleUserPermission = async (permissionId) => {
+    if (!selectedUser.value) return
+    const isAdded = userPermissionsSelection.value.includes(permissionId)
+    try {
+        if (isAdded) {
+            await api.post('/assign-userpermission', { userId: selectedUser.value.id, permissionId })
+            $q.notify({ type: 'positive', message: 'Permiso directo asignado' })
+        } else {
+            await api.post('/remove-userpermission', { userId: selectedUser.value.id, permissionId })
+            $q.notify({ type: 'positive', message: 'Permiso directo removido' })
+        }
+    } catch (error) {
+        $q.notify({ type: 'negative', message: 'Error al actualizar permiso' })
+    }
+}
+
+const openViewUserAccessModal = async (user) => {
+    selectedUserAccess.value = user
+    viewUserAccessModalOpen.value = true
+    loadingUserAccess.value = true
+    userAccessData.directPermissions = []
+    userAccessData.roles = []
+
+    try {
+        const [rolesRes, userPermsRes, rolesPermsRes] = await Promise.all([
+            api.get('/users_roles'),
+            api.get('/users_permissions'),
+            api.get('/roles_permissions')
+        ])
+
+        const allUsersRoles = Array.isArray(rolesRes.data) ? rolesRes.data : []
+        const allUsersPerms = Array.isArray(userPermsRes.data) ? userPermsRes.data : []
+        const allRolesPerms = Array.isArray(rolesPermsRes.data) ? rolesPermsRes.data : []
+
+        // Obtener permisos directos del usuario
+        const myDirectPermIds = allUsersPerms.filter(up => up.user_id === user.id).map(up => up.permission_id)
+        userAccessData.directPermissions = permissions.value.filter(p => myDirectPermIds.includes(p.id))
+
+        // Obtener roles del usuario
+        const myRoleIds = allUsersRoles.filter(ur => ur.user_id === user.id).map(ur => ur.role_id)
+        const myRolesRaw = roles.value.filter(r => myRoleIds.includes(r.id))
+
+        // Cruzar los roles con sus permisos pre-cargados
+        userAccessData.roles = myRolesRaw.map(role => {
+            const permissionIdsForRole = allRolesPerms
+                .filter(rp => rp.role_id === role.id)
+                .map(rp => rp.permission_id)
+
+            return {
+                ...role,
+                permissions: permissions.value.filter(p => permissionIdsForRole.includes(p.id))
+            }
+        })
+    } catch (error) {
+        console.error("Error cargando accesos del usuario", error)
+        $q.notify({ type: 'negative', message: 'Error cargando resumen de accesos' })
+    } finally {
+        loadingUserAccess.value = false
+    }
+}
+
+const openAssignPermissionModal = (role) => {
+    selectedRole.value = role
+    rolePermissionsSelection.value = [] // Reset
+    // Misma limitación: no sabemos qué permisos tiene el rol actualmente sin un endpoint específico.
+    // Usaremos 'listRolesPermissions' para filtrar en frontend si es posible.
+    fetchRolePermissions(role.id)
+    assignPermissionModalOpen.value = true
+}
+
+const fetchRolePermissions = async (roleId) => {
+    try {
+        const res = await api.get('/roles_permissions')
+        const data = Array.isArray(res.data) ? res.data : []
+        // Filtrar los que corresponden a este rol
+        const rolePerms = data.filter(rp => rp.role_id === roleId)
+        rolePermissionsSelection.value = rolePerms.map(rp => rp.permission_id)
+    } catch (error) {
+        console.error(error)
+        rolePermissionsSelection.value = []
+    }
+}
+
+const togglePermission = async (permissionId) => {
+    if (!selectedRole.value) return
+    const isAdded = rolePermissionsSelection.value.includes(permissionId)
+    try {
+        if (isAdded) {
+            await api.post('/assign-rolepermission', { roleId: selectedRole.value.id, permissionId })
+            $q.notify({ type: 'positive', message: 'Permiso asignado' })
+        } else {
+            await api.post('/remove-rolepermission', { roleId: selectedRole.value.id, permissionId })
+            $q.notify({ type: 'positive', message: 'Permiso removido' })
+        }
+    } catch (error) {
+        $q.notify({ type: 'negative', message: 'Error al actualizar permiso' })
+    }
+}
+
+// --- Password Logic ---
+const hasMinLength = computed(() => (userForm.password || '').length >= 8)
+const hasUpperCase = computed(() => /[A-Z]/.test(userForm.password || ''))
+const hasLowerCase = computed(() => /[a-z]/.test(userForm.password || ''))
+const hasNumber = computed(() => /[0-9]/.test(userForm.password || ''))
+const hasSpecial = computed(() => /[!"#$%&/=.\-*;]/.test(userForm.password || ''))
+
+const validatePasswordStrength = (val) => {
+    if (!val) return 'Requerido'
+    if (val.length < 8) return 'Mínimo 8 caracteres'
+    if (!/[A-Z]/.test(val)) return 'Al menos una mayúscula'
+    if (!/[a-z]/.test(val)) return 'Al menos una minúscula'
+    if (!/[0-9]/.test(val)) return 'Al menos un número'
+    if (!/[!"#$%&/=.\-*;]/.test(val)) return 'Al menos un carácter especial (!"#$%&/=.-*;)'
+    return true
+}
+
+const generatePassword = () => {
+    const length = 12
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&/=.-*;"
+    let retVal = ""
+    // Ensure at least one of each required type
+    retVal += "A" // Upper
+    retVal += "a" // Lower
+    retVal += "1" // Number
+    retVal += "." // Special
+
+    for (let i = 0, n = charset.length; i < length - 4; ++i) {
+        retVal += charset.charAt(Math.floor(Math.random() * n))
+    }
+
+    // Shuffle
+    retVal = retVal.split('').sort(function () { return 0.5 - Math.random() }).join('');
+
+    userForm.password = retVal
+    userForm.confirmPassword = retVal
+}
+
+// --- Mantenimiento ---
+const fetchMaintenanceLogs = async () => {
+    maintenanceLoading.value = true
+    try {
+        const { data } = await api.get('/maintenance/logs')
+        maintenanceLogs.value = data
+    } catch (err) {
+        console.error('Error fetching maintenance logs:', err)
+        $q.notify({ type: 'negative', message: 'Error al cargar la bitácora de mantenimiento.' })
+    } finally {
+        maintenanceLoading.value = false
+    }
+}
+
+const confirmPurge = () => {
+    $q.dialog({
+        title: '¡ACCIÓN CRÍTICA!',
+        message: 'Esta acción eliminará PERMANENTEMENTE todos los registros marcados como borrados. No se pueden recuperar. Escribe "PURGAR" para confirmar:',
+        prompt: {
+            model: '',
+            isValid: val => val === 'PURGAR',
+            type: 'text'
+        },
+        cancel: true,
+        persistent: true,
+        ok: {
+            color: 'negative',
+            label: 'ELIMINAR TODO'
+        }
+    }).onOk(async () => {
+        maintenanceLoading.value = true
+        try {
+            const { data } = await api.post('/maintenance/purge')
+            $q.notify({ type: 'positive', message: data.message })
+            await fetchMaintenanceLogs()
+        } catch (err) {
+            $q.notify({ type: 'negative', message: err?.response?.data?.error || 'Error al ejecutar la purga' })
+        } finally {
+            maintenanceLoading.value = false
+        }
+    })
+}
+</script>

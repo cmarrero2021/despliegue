@@ -1,0 +1,62 @@
+// app global css in SCSS form
+
+// Variables de colores
+:root {
+  --primary-blue: #273984;
+  --primary-blue-light: #3d4fa3;
+  --primary-blue-dark: #1a2660;
+  --gray-bg: #F5F5F5;
+  --gray-light: #FAFAFA;
+  --white: #FFFFFF;
+  --text-dark: #333333;
+  --text-light: #666666;
+}
+
+html, body, #q-app {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+// Case standardization
+.q-field {
+  // Inner input inside Quasar components
+  input, textarea {
+    text-transform: uppercase;
+  }
+
+  // Exceptions inside Quasar (by type or class)
+  input[type="password"],
+  &.no-uppercase input,
+  &.no-transform input {
+    text-transform: none !important;
+  }
+  
+  input[type="email"], 
+  input[type="url"],
+  &.lowercase-input input {
+    text-transform: lowercase !important;
+  }
+}
+
+// Global defaults for non-quasar/plain inputs
+input {
+  text-transform: uppercase;
+  
+  &[type="password"], &.no-uppercase, &.no-transform {
+    text-transform: none !important;
+  }
+  
+  &[type="email"], &[type="url"], &.lowercase-input {
+    text-transform: lowercase !important;
+  }
+}
+
+textarea {
+  text-transform: uppercase;
+  &.no-uppercase, &.no-transform {
+    text-transform: none !important;
+  }
+}

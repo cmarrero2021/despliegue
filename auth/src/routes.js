@@ -44,7 +44,9 @@ const {
   verify2FA,
   getCooldownSettings,
   updateCooldownSettings,
-  assignUserPassword
+  assignUserPassword,
+  getMaintenanceLogs,
+  executePurge
 } = require("./controllers");
 const { authenticate, authorize, checkBlacklist } = require("./middlewares");
 
@@ -185,5 +187,9 @@ router.post('/remove-userpermission', authenticate, authorize('remove_user_permi
 // Logs y auditoría
 router.get("/login-logs", authenticate, authorize('view_login_logs'), listLoginLogs);
 router.get("/audit-logs", authenticate, authorize('view_action_logs'), listAuditLogs);
+
+// Mantenimiento - Bitácora y Purga
+router.get("/maintenance/logs", authenticate, authorize('view_maintenance_menu'), getMaintenanceLogs);
+router.post("/maintenance/purge", authenticate, authorize('perform_purge'), executePurge);
 
 module.exports = router;

@@ -1900,3 +1900,176 @@ exports.updateCooldownSettings = async (req, res) => {
     client.release();
   }
 };
+
+// ================================
+// Mantenimiento - Bitácora y Purga
+// ================================
+
+exports.getMaintenanceLogs = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT id, batch_id, performed_at, username, ip_address, table_name,
+              records_purged, duration_ms, status, error_message
+       FROM maintenance_purge_logs
+       ORDER BY performed_at DESC
+       LIMIT 200`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener bitácora de mantenimiento:', err);
+    res.status(500).json({ error: 'Error al obtener la bitácora de mantenimiento.' });
+  } finally {
+    client.release();
+  }
+};
+
+exports.executePurge = async (req, res) => {
+  const client = await pool.connect();
+  const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+  const performedById = req.userId || null;
+
+  // Obtener email del usuario que ejecuta la purga
+  let username = 'admin';
+  try {
+    if (performedById) {
+      const userRes = await client.query('SELECT email FROM users WHERE id = $1', [performedById]);
+      if (userRes.rows.length > 0) username = userRes.rows[0].email;
+    }
+  } catch (_) { /* ignorar, usar valor por defecto */ }
+
+  // Tablas que soportan borrado lógico (deleted_at IS NOT NULL)
+  const purgeTables = [
+    'users',
+    'blacklisted_tokens',
+    'sessions',
+    'audit_logs',
+    'login_logs',
+    'password_resets',
+    'two_factor_codes',
+  ];
+
+  try {
+    await client.query('BEGIN');
+
+    // Generar batch_id único para este ciclo de purga
+    const batchResult = await client.query('SELECT gen_random_uuid() AS batch_id');
+    const batchId = batchResult.rows[0].batch_id;
+
+    let totalPurged = 0;
+    const tableResults = [];
+
+    for (const tableName of purgeTables) {
+      const startMs = Date.now();
+      let recordsPurged = 0;
+      let status = 'SUCCESS';
+      let errorMessage = null;
+
+      try {
+        // Verificar si la tabla tiene columna deleted_at
+        const colCheck = await client.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'deleted_at'`,
+          [tableName]
+        );
+
+        if (colCheck.rows.length > 0) {
+          const deleteResult = await client.query(
+            `DELETE FROM ${tableName} WHERE deleted_at IS NOT NULL`
+          );
+          recordsPurged = deleteResult.rowCount || 0;
+          totalPurged += recordsPurged;
+        } else if (tableName === 'blacklisted_tokens') {
+          // Los tokens en lista negra se purgan si han expirado hace más de 7 días
+          const colExpiry = await client.query(
+            `SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'blacklisted_tokens' AND column_name = 'expires_at'`
+          );
+          if (colExpiry.rows.length > 0) {
+            const deleteResult = await client.query(
+              `DELETE FROM blacklisted_tokens WHERE expires_at < NOW() - INTERVAL '7 days'`
+            );
+            recordsPurged = deleteResult.rowCount || 0;
+            totalPurged += recordsPurged;
+          }
+        } else if (tableName === 'sessions') {
+          // Sesiones revocadas o expiradas hace más de 30 días
+          const deleteResult = await client.query(
+            `DELETE FROM sessions WHERE is_revoked = true AND expires_at < NOW() - INTERVAL '30 days'`
+          );
+          recordsPurged = deleteResult.rowCount || 0;
+          totalPurged += recordsPurged;
+        } else if (tableName === 'audit_logs') {
+          // Logs de auditoría con más de 1 año
+          const colCheck2 = await client.query(
+            `SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'audit_logs' AND column_name = 'created_at'`
+          );
+          if (colCheck2.rows.length > 0) {
+            const deleteResult = await client.query(
+              `DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL '1 year'`
+            );
+            recordsPurged = deleteResult.rowCount || 0;
+            totalPurged += recordsPurged;
+          }
+        } else if (tableName === 'login_logs') {
+          // Logs de login con más de 1 año
+          const colCheck3 = await client.query(
+            `SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'login_logs' AND column_name = 'created_at'`
+          );
+          if (colCheck3.rows.length > 0) {
+            const deleteResult = await client.query(
+              `DELETE FROM login_logs WHERE created_at < NOW() - INTERVAL '1 year'`
+            );
+            recordsPurged = deleteResult.rowCount || 0;
+            totalPurged += recordsPurged;
+          }
+        } else if (tableName === 'password_resets') {
+          const deleteResult = await client.query(
+            `DELETE FROM password_resets WHERE expires_at < NOW() - INTERVAL '7 days'`
+          );
+          recordsPurged = deleteResult.rowCount || 0;
+          totalPurged += recordsPurged;
+        } else if (tableName === 'two_factor_codes') {
+          const deleteResult = await client.query(
+            `DELETE FROM two_factor_codes WHERE expires_at < NOW() - INTERVAL '1 day'`
+          );
+          recordsPurged = deleteResult.rowCount || 0;
+          totalPurged += recordsPurged;
+        }
+      } catch (tableErr) {
+        status = 'ERROR';
+        errorMessage = tableErr.message;
+        console.error(`Error al purgar tabla ${tableName}:`, tableErr.message);
+      }
+
+      const durationMs = Date.now() - startMs;
+
+      // Registrar en la bitácora
+      await client.query(
+        `INSERT INTO maintenance_purge_logs
+           (batch_id, performed_by_id, username, ip_address, table_name, records_purged, duration_ms, status, error_message)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [batchId, performedById, username, ip, tableName, recordsPurged, durationMs, status, errorMessage]
+      );
+
+      tableResults.push({ table: tableName, records_purged: recordsPurged, status });
+    }
+
+    await client.query('COMMIT');
+
+    res.json({
+      message: `Purga completada. Se eliminaron ${totalPurged} registro(s) en total.`,
+      batch_id: batchId,
+      total_purged: totalPurged,
+      details: tableResults,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error al ejecutar purga:', err);
+    res.status(500).json({ error: 'Error al ejecutar la purga del sistema.' });
+  } finally {
+    client.release();
+  }
+};

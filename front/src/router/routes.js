@@ -32,6 +32,10 @@ const routes = [
         path: "administracion",
         component: () => import("pages/admin/AdminPage.vue"),
       },
+      {
+        path: "registro-despliegue",
+        component: () => import("pages/despliegues/FormularioDesplieguePage.vue"),
+      },
       // Rutas de auditoría
       {
         path: "auditoria/ingresos",

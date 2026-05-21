@@ -27,6 +27,20 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 4121
       }
+    },
+    {
+      name: "despliegue-api",
+      cwd: "/var/www/html/despliegue/api",
+      script: "src/index.js",
+      watch: false,
+      env_development: {
+        NODE_ENV: "development",
+        PORT: 4131
+      },
+      env_production: {
+        NODE_ENV: "production",
+        PORT: 4131
+      }
     }
   ]
 };
